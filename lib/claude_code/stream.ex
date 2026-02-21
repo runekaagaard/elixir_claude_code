@@ -390,7 +390,8 @@ defmodule ClaudeCode.Stream do
       tool_result_map: %{},
       thinking: [],
       result: nil,
-      is_error: false
+      is_error: false,
+      session_id: nil
     }
 
     stream
@@ -423,8 +424,8 @@ defmodule ClaudeCode.Stream do
 
         %{acc | tool_result_map: tool_result_map}
 
-      %Message.ResultMessage{result: result, is_error: is_error}, acc ->
-        %{acc | result: result, is_error: is_error}
+      %Message.ResultMessage{result: result, is_error: is_error, session_id: session_id}, acc ->
+        %{acc | result: result, is_error: is_error, session_id: session_id}
 
       _, acc ->
         acc
@@ -439,11 +440,12 @@ defmodule ClaudeCode.Stream do
         end)
 
       %{
-        text: Enum.join(acc.text),
+        text: acc.text |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.join("\n\n"),
         tool_calls: tool_calls,
         thinking: Enum.join(acc.thinking),
         result: acc.result,
-        is_error: acc.is_error
+        is_error: acc.is_error,
+        session_id: acc.session_id
       }
     end)
   end

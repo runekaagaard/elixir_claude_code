@@ -39,6 +39,7 @@ defmodule ClaudeCode.History do
   alias ClaudeCode.Message.AssistantMessage
   alias ClaudeCode.Message.UserMessage
 
+  import Bitwise
   require Logger
 
   @type session_id :: String.t()
@@ -427,6 +428,113 @@ defmodule ClaudeCode.History do
   defp normalize_key("inputTokens"), do: "input_tokens"
   defp normalize_key("outputTokens"), do: "output_tokens"
   defp normalize_key(key), do: key
+
+  @doc """
+  Fork a session at the given message UUID.
+
+  Creates a new JSONL file containing all lines before `message_uuid`,
+  effectively branching the conversation at that point. The original
+  session file is untouched.
+
+  Returns `{:ok, new_session_id}` on success, or `{:error, reason}`.
+
+  ## Examples
+
+      {:ok, new_id} = ClaudeCode.History.fork_at("old-session-id", "message-uuid-to-fork-before")
+      {:ok, session} = ClaudeCode.start_link(resume: new_id)
+
+  """
+  @spec fork_at(session_id(), String.t(), keyword()) :: {:ok, session_id()} | {:error, term()}
+  def fork_at(old_session_id, message_uuid, opts \\ []) do
+    with {:ok, old_path} <- find_session_path(old_session_id, opts) do
+      new_id = generate_uuid()
+      dir = Path.dirname(old_path)
+      new_path = Path.join(dir, "#{new_id}.jsonl")
+
+      case write_truncated_at(old_path, new_path, message_uuid, new_id) do
+        :ok ->
+          register_session(dir, new_id, new_path)
+          Logger.info("Forked session #{old_session_id} → #{new_id} at message #{message_uuid}")
+          {:ok, new_id}
+
+        {:error, reason} ->
+          if reason == :uuid_not_found do
+            Logger.warning("Message #{message_uuid} not found in session #{old_session_id}")
+          else
+            Logger.error("Failed to fork session: #{inspect(reason)}")
+          end
+
+          File.rm(new_path)
+          {:error, reason}
+      end
+    end
+  end
+
+  # Private helpers
+
+  defp write_truncated_at(old_path, new_path, target_uuid, new_session_id) do
+    old_path
+    |> File.stream!()
+    |> Enum.reduce_while({:writing, false}, fn line, {_status, _found} ->
+      case Jason.decode(line) do
+        {:ok, %{"uuid" => ^target_uuid}} ->
+          {:halt, {:done, true}}
+
+        {:ok, parsed} ->
+          # Rewrite sessionId so --resume can find the forked session
+          updated = Map.put(parsed, "sessionId", new_session_id)
+          File.write!(new_path, Jason.encode!(updated) <> "\n", [:append])
+          {:cont, {:writing, false}}
+
+        {:error, _} ->
+          File.write!(new_path, line, [:append])
+          {:cont, {:writing, false}}
+      end
+    end)
+    |> case do
+      {:done, true} -> :ok
+      {:writing, false} -> {:error, :uuid_not_found}
+    end
+  end
+
+  defp register_session(dir, session_id, jsonl_path) do
+    index_path = Path.join(dir, "sessions-index.json")
+
+    try do
+      index =
+        case File.read(index_path) do
+          {:ok, data} -> Jason.decode!(data)
+          {:error, _} -> %{"version" => 1, "entries" => [], "originalPath" => dir}
+        end
+
+      entry = %{
+        "sessionId" => session_id,
+        "fullPath" => jsonl_path,
+        "fileMtime" => System.system_time(:millisecond),
+        "firstPrompt" => "(forked session)"
+      }
+
+      entries = Map.get(index, "entries", []) ++ [entry]
+      updated = Map.put(index, "entries", entries)
+      File.write!(index_path, Jason.encode!(updated))
+    rescue
+      _ -> :ok
+    end
+  end
+
+  defp generate_uuid do
+    <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
+
+    [
+      String.pad_leading(Integer.to_string(a, 16), 8, "0"),
+      String.pad_leading(Integer.to_string(b, 16), 4, "0"),
+      String.pad_leading(Integer.to_string(band(c, 0x0FFF) ||| 0x4000, 16), 4, "0"),
+      String.pad_leading(Integer.to_string(band(d, 0x3FFF) ||| 0x8000, 16), 4, "0"),
+      String.pad_leading(Integer.to_string(e, 16), 12, "0")
+    ]
+    |> Enum.join("-")
+    |> String.downcase()
+  end
 
   defp conversation_message?(%{"type" => type}) when type in @conversation_types, do: true
   defp conversation_message?(_), do: false

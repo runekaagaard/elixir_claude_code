@@ -11,7 +11,7 @@ defmodule ClaudeCode.CLI.Command do
 
   alias ClaudeCode.MCP.Server
 
-  @required_flags ["--output-format", "stream-json", "--verbose", "--print"]
+  @required_flags ["--output-format", "stream-json", "--verbose", "--print", "--replay-user-messages"]
 
   @doc """
   Builds the full argument list for a CLI invocation.

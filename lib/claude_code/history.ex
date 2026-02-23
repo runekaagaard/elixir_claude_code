@@ -500,26 +500,22 @@ defmodule ClaudeCode.History do
   defp register_session(dir, session_id, jsonl_path) do
     index_path = Path.join(dir, "sessions-index.json")
 
-    try do
-      index =
-        case File.read(index_path) do
-          {:ok, data} -> Jason.decode!(data)
-          {:error, _} -> %{"version" => 1, "entries" => [], "originalPath" => dir}
-        end
+    index =
+      case File.read(index_path) do
+        {:ok, data} -> Jason.decode!(data)
+        {:error, _} -> %{"version" => 1, "entries" => [], "originalPath" => dir}
+      end
 
-      entry = %{
-        "sessionId" => session_id,
-        "fullPath" => jsonl_path,
-        "fileMtime" => System.system_time(:millisecond),
-        "firstPrompt" => "(forked session)"
-      }
+    entry = %{
+      "sessionId" => session_id,
+      "fullPath" => jsonl_path,
+      "fileMtime" => System.system_time(:millisecond),
+      "firstPrompt" => "(forked session)"
+    }
 
-      entries = Map.get(index, "entries", []) ++ [entry]
-      updated = Map.put(index, "entries", entries)
-      File.write!(index_path, Jason.encode!(updated))
-    rescue
-      _ -> :ok
-    end
+    entries = Map.get(index, "entries", []) ++ [entry]
+    updated = Map.put(index, "entries", entries)
+    File.write!(index_path, Jason.encode!(updated))
   end
 
   defp generate_uuid do

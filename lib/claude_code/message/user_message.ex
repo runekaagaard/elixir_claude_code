@@ -28,7 +28,8 @@ defmodule ClaudeCode.Message.UserMessage do
     :session_id,
     :uuid,
     :parent_tool_use_id,
-    :tool_use_result
+    :tool_use_result,
+    :tmp_uuid
   ]
 
   @type t :: %__MODULE__{
@@ -37,7 +38,8 @@ defmodule ClaudeCode.Message.UserMessage do
           session_id: Types.session_id(),
           uuid: String.t() | nil,
           parent_tool_use_id: String.t() | nil,
-          tool_use_result: map() | nil
+          tool_use_result: map() | nil,
+          tmp_uuid: String.t() | nil
         }
 
   @doc """

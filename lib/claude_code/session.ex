@@ -45,7 +45,8 @@ defmodule ClaudeCode.Session do
       :subscribers,
       :messages,
       :status,
-      :created_at
+      :created_at,
+      :tmp_uuid
     ]
   end
 
@@ -113,12 +114,17 @@ defmodule ClaudeCode.Session do
 
   @impl true
   def handle_call({:query_stream, prompt, opts}, _from, state) do
+    # Extract stream-layer options before validation (not CLI options)
+    {tmp_uuid, opts} = Keyword.pop(opts, :tmp_uuid)
+    {_filter, opts} = Keyword.pop(opts, :filter)
+
     request = %Request{
       id: make_ref(),
       subscribers: [],
       messages: [],
       status: :active,
-      created_at: System.monotonic_time()
+      created_at: System.monotonic_time(),
+      tmp_uuid: tmp_uuid
     }
 
     case enqueue_or_execute(request, prompt, opts, state) do
@@ -227,6 +233,7 @@ defmodule ClaudeCode.Session do
         {:noreply, state}
 
       request ->
+        message = maybe_attach_tmp_uuid(message, request)
         updated_request = dispatch_message(message, request)
         new_requests = Map.put(state.requests, request_id, updated_request)
         {:noreply, %{state | requests: new_requests}}
@@ -471,7 +478,20 @@ defmodule ClaudeCode.Session do
   defp extract_session_id(%SystemMessage{session_id: sid}) when not is_nil(sid), do: sid
   defp extract_session_id(%AssistantMessage{session_id: sid}) when not is_nil(sid), do: sid
   defp extract_session_id(%ResultMessage{session_id: sid}) when not is_nil(sid), do: sid
+  defp extract_session_id(%ClaudeCode.Message.UserMessage{session_id: sid}) when not is_nil(sid), do: sid
   defp extract_session_id(_), do: nil
+
+  # Attach tmp_uuid to echoed user text messages (not tool results).
+  # User text echoes have binary content; tool results have list content.
+  defp maybe_attach_tmp_uuid(
+         %ClaudeCode.Message.UserMessage{message: %{content: content}} = msg,
+         %Request{tmp_uuid: tmp_uuid}
+       )
+       when is_binary(content) and not is_nil(tmp_uuid) do
+    %{msg | tmp_uuid: tmp_uuid}
+  end
+
+  defp maybe_attach_tmp_uuid(message, _request), do: message
 
   defp supports_control?(adapter_module) do
     function_exported?(adapter_module, :send_control_request, 3)

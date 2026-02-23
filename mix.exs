@@ -58,6 +58,7 @@ defmodule ClaudeCode.MixProject do
       {:nimble_options, "~> 1.0"},
       {:nimble_ownership, "~> 1.0"},
       {:telemetry, "~> 1.2"},
+      {:uniq, "~> 0.6"},
 
       # Optional dependencies
       {:hermes_mcp, "~> 0.14", optional: true},

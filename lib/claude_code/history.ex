@@ -39,7 +39,6 @@ defmodule ClaudeCode.History do
   alias ClaudeCode.Message.AssistantMessage
   alias ClaudeCode.Message.UserMessage
 
-  import Bitwise
   require Logger
 
   @type session_id :: String.t()
@@ -518,19 +517,7 @@ defmodule ClaudeCode.History do
     File.write!(index_path, Jason.encode!(updated))
   end
 
-  defp generate_uuid do
-    <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
-
-    [
-      String.pad_leading(Integer.to_string(a, 16), 8, "0"),
-      String.pad_leading(Integer.to_string(b, 16), 4, "0"),
-      String.pad_leading(Integer.to_string(band(c, 0x0FFF) ||| 0x4000, 16), 4, "0"),
-      String.pad_leading(Integer.to_string(band(d, 0x3FFF) ||| 0x8000, 16), 4, "0"),
-      String.pad_leading(Integer.to_string(e, 16), 12, "0")
-    ]
-    |> Enum.join("-")
-    |> String.downcase()
-  end
+  defp generate_uuid, do: Uniq.UUID.uuid4()
 
   defp conversation_message?(%{"type" => type}) when type in @conversation_types, do: true
   defp conversation_message?(_), do: false

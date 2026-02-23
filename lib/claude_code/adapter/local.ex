@@ -271,6 +271,15 @@ defmodule ClaudeCode.Adapter.Local do
   @impl GenServer
   def terminate(_reason, state) do
     if state.port && Port.info(state.port) do
+      # Interrupt first — tells the CLI to stop generating before we close the port.
+      # Without this, the CLI keeps consuming the API until it notices the broken pipe.
+      try do
+        {request_id, _} = next_request_id(state.control_counter)
+        Port.command(state.port, Control.interrupt_request(request_id) <> "\n")
+      rescue
+        _ -> :ok
+      end
+
       Port.close(state.port)
     end
 

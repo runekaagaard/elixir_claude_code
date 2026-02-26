@@ -51,7 +51,7 @@ defmodule ClaudeCode.Stream do
           opts: opts,
           initialized: false,
           request_ref: nil,
-          timeout: Keyword.get(opts, :timeout, 60_000),
+          timeout: Keyword.get(opts, :timeout, :infinity),
           filter: Keyword.get(opts, :filter, :all),
           done: false
         }

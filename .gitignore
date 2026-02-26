@@ -59,3 +59,4 @@ npm-debug.log
 
 # Mix lock file (you might want to commit this)
 # mix.lock
+dev-artifacts/

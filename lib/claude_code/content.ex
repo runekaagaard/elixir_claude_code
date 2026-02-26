@@ -6,12 +6,13 @@ defmodule ClaudeCode.Content do
   This module provides functions to parse and work with any content type.
   """
 
+  alias ClaudeCode.Content.ImageBlock
   alias ClaudeCode.Content.TextBlock
   alias ClaudeCode.Content.ThinkingBlock
   alias ClaudeCode.Content.ToolResultBlock
   alias ClaudeCode.Content.ToolUseBlock
 
-  @type t :: TextBlock.t() | ThinkingBlock.t() | ToolUseBlock.t() | ToolResultBlock.t()
+  @type t :: TextBlock.t() | ThinkingBlock.t() | ToolUseBlock.t() | ToolResultBlock.t() | ImageBlock.t()
 
   @doc """
   Checks if a value is any type of content block.
@@ -21,14 +22,16 @@ defmodule ClaudeCode.Content do
   def content?(%ThinkingBlock{}), do: true
   def content?(%ToolUseBlock{}), do: true
   def content?(%ToolResultBlock{}), do: true
+  def content?(%ImageBlock{}), do: true
   def content?(_), do: false
 
   @doc """
   Returns the type of a content block.
   """
-  @spec content_type(t()) :: :text | :thinking | :tool_use | :tool_result
+  @spec content_type(t()) :: :text | :thinking | :tool_use | :tool_result | :image
   def content_type(%TextBlock{type: type}), do: type
   def content_type(%ThinkingBlock{type: type}), do: type
   def content_type(%ToolUseBlock{type: type}), do: type
   def content_type(%ToolResultBlock{type: type}), do: type
+  def content_type(%ImageBlock{type: type}), do: type
 end

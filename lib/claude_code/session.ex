@@ -35,8 +35,6 @@ defmodule ClaudeCode.Session do
     adapter_status: :provisioning
   ]
 
-  @request_timeout 300_000
-
   # Request tracking structure
   defmodule Request do
     @moduledoc false
@@ -264,21 +262,6 @@ defmodule ClaudeCode.Session do
     end
   end
 
-  def handle_info({:request_timeout, request_id}, state) do
-    case Map.get(state.requests, request_id) do
-      nil ->
-        {:noreply, state}
-
-      request when request.status == :active ->
-        Logger.warning("Request #{inspect(request_id)} timed out after #{@request_timeout}ms")
-        notify_error(request, :timeout)
-        new_requests = Map.put(state.requests, request_id, %{request | status: :completed})
-        {:noreply, %{state | requests: new_requests}}
-
-      _completed ->
-        {:noreply, state}
-    end
-  end
 
   def handle_info({:adapter_control_request, request_id, request}, state) do
     Logger.warning("Received unhandled control request from adapter: #{inspect(request)} (#{request_id})")
@@ -375,7 +358,6 @@ defmodule ClaudeCode.Session do
            query_opts
          ) do
       :ok ->
-        schedule_request_timeout(request.id)
         {:ok, %{state | requests: Map.put(state.requests, request.id, request)}}
 
       {:error, reason} ->
@@ -438,9 +420,6 @@ defmodule ClaudeCode.Session do
     end
   end
 
-  defp schedule_request_timeout(request_id) do
-    Process.send_after(self(), {:request_timeout, request_id}, @request_timeout)
-  end
 
   # ============================================================================
   # Private Functions - Message Handling

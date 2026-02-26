@@ -12,6 +12,7 @@ defmodule ClaudeCode.CLI.Parser do
   functions remain in `ClaudeCode.Message` and `ClaudeCode.Content`.
   """
 
+  alias ClaudeCode.Content.ImageBlock
   alias ClaudeCode.Content.TextBlock
   alias ClaudeCode.Content.ThinkingBlock
   alias ClaudeCode.Content.ToolResultBlock
@@ -127,6 +128,7 @@ defmodule ClaudeCode.CLI.Parser do
       "thinking" -> ThinkingBlock.new(data)
       "tool_use" -> ToolUseBlock.new(data)
       "tool_result" -> ToolResultBlock.new(data)
+      "image" -> ImageBlock.new(data)
       other -> {:error, {:unknown_content_type, other}}
     end
   end

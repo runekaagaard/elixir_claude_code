@@ -224,8 +224,12 @@ defmodule ClaudeCode.MCP.Server do
       case arity do
         1 ->
           quote do
+            require Logger
+
             @impl true
             def execute(params, frame) do
+              agent_id = get_in(frame.assigns, [:agent_id])
+              Logger.info("[mcp agent_id=#{agent_id}] #{__tool_name__()}(#{inspect(params)})")
               result = __user_execute__(params)
               __wrap_result__(result, frame)
             end
@@ -233,8 +237,12 @@ defmodule ClaudeCode.MCP.Server do
 
         _2 ->
           quote do
+            require Logger
+
             @impl true
             def execute(params, frame) do
+              agent_id = get_in(frame.assigns, [:agent_id])
+              Logger.info("[mcp agent_id=#{agent_id}] #{__tool_name__()}(#{inspect(params)})")
               result = __user_execute__(params, frame)
               __wrap_result__(result, frame)
             end

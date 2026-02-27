@@ -52,8 +52,9 @@ defmodule ClaudeCode.MCP.Router do
           "serverInfo" => %{"name" => server_name, "version" => "1.0.0"}
         })
 
-      "notifications/initialized" ->
-        # Notifications have no "id" field in JSONRPC 2.0
+      "notifications/" <> _ ->
+        # All notifications (initialized, cancelled, etc.) have no "id" field
+        # in JSONRPC 2.0 — they're fire-and-forget. Return empty result.
         %{"jsonrpc" => "2.0", "result" => %{}}
 
       "tools/list" ->
@@ -124,5 +125,10 @@ defmodule ClaudeCode.MCP.Router do
 
   defp jsonrpc_error(%{"id" => id}, code, message) do
     %{"jsonrpc" => "2.0", "id" => id, "error" => %{"code" => code, "message" => message}}
+  end
+
+  # Notifications have no "id" — return empty response instead of crashing
+  defp jsonrpc_error(_message, _code, _message_text) do
+    %{"jsonrpc" => "2.0", "result" => %{}}
   end
 end

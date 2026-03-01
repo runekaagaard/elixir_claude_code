@@ -361,6 +361,7 @@ defmodule ClaudeCode.CLI.Command do
   defp convert_option(:env, _value), do: nil
   defp convert_option(:max_buffer_size, _value), do: nil
   defp convert_option(:extra_args, _value), do: nil
+  defp convert_option(:agentbox, _value), do: nil
 
   defp convert_option(key, value) do
     # Convert unknown keys to kebab-case flags

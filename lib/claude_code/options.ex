@@ -644,6 +644,11 @@ defmodule ClaudeCode.Options do
       default: 1_048_576,
       doc:
         "Maximum buffer size in bytes for incoming JSON data. Protects against unbounded memory growth. Default: 1MB (1_048_576 bytes)."
+    ],
+    agentbox: [
+      type: :map,
+      doc:
+        "OS-level sandbox via linux-agentbox. Map with :executable, :profile, and optional :config and :workdir keys. Wraps the CLI command with agentbox."
     ]
   ]
 

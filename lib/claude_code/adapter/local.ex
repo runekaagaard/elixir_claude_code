@@ -409,15 +409,29 @@ defmodule ClaudeCode.Adapter.Local do
         "#{key}=#{shell_escape(to_string(value))}"
       end)
 
+    cwd = Keyword.get(opts, :cwd)
+
     cwd_prefix =
-      case Keyword.get(opts, :cwd) do
+      case cwd do
         nil -> ""
         cwd_path -> "cd #{shell_escape(cwd_path)} && "
       end
 
     cmd_string = Enum.map_join([executable | args], " ", &shell_escape/1)
 
-    "#{cwd_prefix}#{env_prefix}exec #{cmd_string}"
+    case Keyword.get(state.session_options, :agentbox) do
+      %{} = ab ->
+        ab_exe = shell_escape(to_string(ab[:executable] || ab["executable"]))
+        profile = shell_escape(to_string(ab[:profile] || ab["profile"]))
+        config = ab[:config] || ab["config"]
+        workdir = ab[:workdir] || ab["workdir"] || cwd || "."
+
+        config_flag = if config, do: " --config #{shell_escape(to_string(config))}", else: ""
+        "#{cwd_prefix}#{env_prefix}exec #{ab_exe}#{config_flag} --profile #{profile} --workdir #{shell_escape(to_string(workdir))} -- #{cmd_string}"
+
+      _ ->
+        "#{cwd_prefix}#{env_prefix}exec #{cmd_string}"
+    end
   end
 
   defp prepare_env(state) do

@@ -550,7 +550,9 @@ defmodule ClaudeCode.Adapter.Local do
       {:ok, request_id, response} ->
         case Map.pop(state.pending_control_requests, request_id) do
           {nil, _} ->
-            Logger.warning("Received control response for unknown request: #{request_id}")
+            # CLI sends control responses for its own internal operations (e.g. MCP server
+            # handshakes) with UUID request IDs we never generated. Safe to ignore.
+            Logger.debug("Received control response for unknown request: #{request_id}")
             state
 
           {{:initialize, session}, remaining} ->
@@ -565,7 +567,7 @@ defmodule ClaudeCode.Adapter.Local do
       {:error, request_id, error_msg} ->
         case Map.pop(state.pending_control_requests, request_id) do
           {nil, _} ->
-            Logger.warning("Received control error for unknown request: #{request_id}")
+            Logger.debug("Received control error for unknown request: #{request_id}")
             state
 
           {{:initialize, session}, remaining} ->

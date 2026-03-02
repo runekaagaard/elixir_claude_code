@@ -157,11 +157,9 @@ defmodule ClaudeCode.Message.SystemMessage do
   def system_message?(_), do: false
 
   defp parse_mcp_servers(servers) when is_list(servers) do
-    Enum.map(servers, fn server ->
-      %{
-        name: server["name"],
-        status: server["status"]
-      }
+    Enum.map(servers, fn server when is_map(server) ->
+      # Keep all fields — CLI may send auth URLs, error messages, etc.
+      Map.new(server, fn {k, v} -> {String.to_atom(k), v} end)
     end)
   end
 

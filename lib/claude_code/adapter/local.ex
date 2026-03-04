@@ -427,7 +427,9 @@ defmodule ClaudeCode.Adapter.Local do
         workdir = ab[:workdir] || ab["workdir"] || cwd || "."
 
         config_flag = if config, do: " --config #{shell_escape(to_string(config))}", else: ""
-        "#{cwd_prefix}#{env_prefix}exec #{ab_exe}#{config_flag} --profile #{profile} --workdir #{shell_escape(to_string(workdir))} -- #{cmd_string}"
+        connect_flags = Enum.map_join(List.wrap(ab[:connect] || ab["connect"] || []), " ", fn p -> "--connect #{p}" end)
+        connect_part = if connect_flags == "", do: "", else: " #{connect_flags}"
+        "#{cwd_prefix}#{env_prefix}exec #{ab_exe}#{config_flag} --profile #{profile} --workdir #{shell_escape(to_string(workdir))}#{connect_part} -- #{cmd_string}"
 
       _ ->
         "#{cwd_prefix}#{env_prefix}exec #{cmd_string}"

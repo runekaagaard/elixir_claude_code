@@ -250,11 +250,22 @@ defmodule ClaudeCode.Message.PartialAssistantMessage do
 
   defp maybe_add_context_management(event, _), do: event
 
-  # Recursively converts string keys to atoms in maps
+  # Recursively converts string keys to existing atoms in maps.
+  # Uses to_existing_atom to prevent atom table exhaustion from novel keys.
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
-      {key, value} when is_binary(key) -> {String.to_atom(key), atomize_keys(value)}
-      {key, value} -> {key, atomize_keys(value)}
+      {key, value} when is_binary(key) ->
+        atom_key =
+          try do
+            String.to_existing_atom(key)
+          rescue
+            ArgumentError -> key
+          end
+
+        {atom_key, atomize_keys(value)}
+
+      {key, value} ->
+        {key, atomize_keys(value)}
     end)
   end
 

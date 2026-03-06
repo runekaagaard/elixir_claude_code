@@ -690,8 +690,15 @@ defmodule ClaudeCode.Adapter.Local do
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
-      {key, value} when is_binary(key) -> {String.to_atom(key), value}
-      {key, value} -> {key, value}
+      {key, value} when is_binary(key) ->
+        try do
+          {String.to_existing_atom(key), value}
+        rescue
+          ArgumentError -> {key, value}
+        end
+
+      {key, value} ->
+        {key, value}
     end)
   end
 

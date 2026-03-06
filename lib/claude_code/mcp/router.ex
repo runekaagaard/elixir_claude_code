@@ -108,14 +108,20 @@ defmodule ClaudeCode.MCP.Router do
     end
   end
 
-  # Converts string keys to atoms for tool parameter maps.
-  #
-  # This is safe because keys come from tool schema field declarations,
-  # which are a bounded set of atoms defined at compile time.
+  # Converts string keys to existing atoms for tool parameter maps.
+  # Uses to_existing_atom to prevent atom table exhaustion from novel keys.
+  # Unknown keys are kept as strings and pass through harmlessly.
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
-      {k, v} when is_binary(k) -> {String.to_atom(k), v}
-      {k, v} -> {k, v}
+      {k, v} when is_binary(k) ->
+        try do
+          {String.to_existing_atom(k), v}
+        rescue
+          ArgumentError -> {k, v}
+        end
+
+      {k, v} ->
+        {k, v}
     end)
   end
 

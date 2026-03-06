@@ -35,7 +35,7 @@ defmodule ClaudeCode.Adapter.Local do
   defstruct [
     :session,
     :session_options,
-    :port,
+    :os_pid,
     :buffer,
     :current_request,
     :api_key,
@@ -45,7 +45,8 @@ defmodule ClaudeCode.Adapter.Local do
     control_counter: 0,
     pending_control_requests: %{},
     max_buffer_size: 1_048_576,
-    sdk_mcp_servers: %{}
+    sdk_mcp_servers: %{},
+    stderr_lines: []
   ]
 
   # ============================================================================
@@ -137,7 +138,7 @@ defmodule ClaudeCode.Adapter.Local do
     case ensure_connected(state) do
       {:ok, connected_state} ->
         message = Input.user_message(prompt, session_id)
-        Port.command(connected_state.port, message <> "\n")
+        :exec.send(connected_state.os_pid, message <> "\n")
         {:reply, :ok, %{connected_state | current_request: request_id}}
 
       {:error, reason} ->
@@ -150,7 +151,7 @@ defmodule ClaudeCode.Adapter.Local do
     health =
       case state do
         %{status: :provisioning} -> {:unhealthy, :provisioning}
-        %{port: port} when not is_nil(port) -> if(Port.info(port), do: :healthy, else: {:unhealthy, :port_dead})
+        %{os_pid: pid} when not is_nil(pid) -> :healthy
         _ -> {:unhealthy, :not_connected}
       end
 
@@ -159,11 +160,11 @@ defmodule ClaudeCode.Adapter.Local do
 
   @impl GenServer
   def handle_call({:control_request, subtype, params}, from, state) do
-    case state.port do
+    case state.os_pid do
       nil ->
         {:reply, {:error, :not_connected}, state}
 
-      port ->
+      os_pid ->
         {request_id, new_counter} = next_request_id(state.control_counter)
 
         case build_control_json(subtype, request_id, params) do
@@ -171,7 +172,7 @@ defmodule ClaudeCode.Adapter.Local do
             {:reply, error, state}
 
           json ->
-            Port.command(port, json <> "\n")
+            :exec.send(os_pid, json <> "\n")
 
             pending = Map.put(state.pending_control_requests, request_id, from)
             schedule_control_timeout(request_id)
@@ -186,22 +187,22 @@ defmodule ClaudeCode.Adapter.Local do
     {:reply, {:ok, state.server_info}, state}
   end
 
-  def handle_call(:interrupt, _from, %{port: nil} = state) do
+  def handle_call(:interrupt, _from, %{os_pid: nil} = state) do
     {:reply, {:error, :not_connected}, state}
   end
 
   def handle_call(:interrupt, _from, state) do
     {request_id, new_counter} = next_request_id(state.control_counter)
     json = Control.interrupt_request(request_id)
-    Port.command(state.port, json <> "\n")
+    :exec.send(state.os_pid, json <> "\n")
     {:reply, :ok, %{state | control_counter: new_counter}}
   end
 
   @impl GenServer
   def handle_info({:cli_resolved, {:ok, {executable, args, streaming_opts}}}, state) do
     case open_cli_port(executable, args, state, streaming_opts) do
-      {:ok, port} ->
-        new_state = %{state | port: port, buffer: "", status: :initializing}
+      {:ok, os_pid} ->
+        new_state = %{state | os_pid: os_pid, buffer: "", stderr_lines: [], status: :initializing}
         send_initialize_handshake(new_state)
 
       {:error, reason} ->
@@ -215,7 +216,8 @@ defmodule ClaudeCode.Adapter.Local do
     {:noreply, %{state | status: :disconnected}}
   end
 
-  def handle_info({port, {:data, data}}, %{port: port} = state) do
+  # erlexec stdout — JSON protocol messages from CLI
+  def handle_info({:stdout, os_pid, data}, %{os_pid: os_pid} = state) do
     new_buffer = state.buffer <> data
 
     # Extract complete lines FIRST — only the remaining incomplete line counts against
@@ -237,18 +239,33 @@ defmodule ClaudeCode.Adapter.Local do
     end
   end
 
-  def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
-    Logger.debug("CLI exited with status #{status}")
-    {:noreply, handle_port_disconnect(state, {:cli_exit, status})}
+  # erlexec stderr — warnings and errors from CLI/sandbox
+  def handle_info({:stderr, os_pid, data}, %{os_pid: os_pid} = state) do
+    lines = data |> String.split("\n") |> Enum.reject(&(&1 == ""))
+    for line <- lines, do: Logger.warning("[cli stderr] #{line}")
+    {:noreply, %{state | stderr_lines: state.stderr_lines ++ lines}}
   end
 
-  def handle_info({:DOWN, _ref, :port, port, reason}, %{port: port} = state) do
-    Logger.error("CLI port closed: #{inspect(reason)}")
-    {:noreply, handle_port_disconnect(state, {:port_closed, reason})}
-  end
+  # erlexec process exit — guaranteed to arrive AFTER all stdout/stderr
+  def handle_info({:DOWN, os_pid, :process, _erlang_pid, reason}, %{os_pid: os_pid} = state) do
+    case reason do
+      :normal ->
+        if state.status in [:provisioning, :initializing] do
+          stderr_text = Enum.join(state.stderr_lines, "\n")
+          Logger.error("[cli] exited during #{state.status} with no error (exit 0)#{if stderr_text != "", do: "\n#{stderr_text}"}")
+        end
+        {:noreply, handle_port_disconnect(state, :normal)}
 
-  def handle_info({port, :eof}, %{port: port} = state) do
-    {:noreply, state}
+      {:exit_status, raw_status} ->
+        {:status, code} = :exec.status(raw_status)
+        stderr_text = Enum.join(state.stderr_lines, "\n")
+        if stderr_text != "", do: Logger.error("[cli exit=#{code}] #{stderr_text}")
+        {:noreply, handle_port_disconnect(state, {:cli_exit, code})}
+
+      other ->
+        Logger.error("[cli] process died: #{inspect(other)}")
+        {:noreply, handle_port_disconnect(state, {:port_closed, other})}
+    end
   end
 
   def handle_info({:control_timeout, request_id}, state) do
@@ -267,28 +284,30 @@ defmodule ClaudeCode.Adapter.Local do
   end
 
   def handle_info(msg, state) do
-    Logger.debug("CLI Adapter unhandled message: #{inspect(msg)}")
+    Logger.warning("[cli] unhandled message: #{inspect(msg)}")
     {:noreply, state}
   end
 
   @impl GenServer
   def terminate(_reason, state) do
-    if state.port && Port.info(state.port) do
-      # Interrupt first — tells the CLI to stop generating before we close the port.
+    if state.os_pid do
+      # Interrupt first — tells the CLI to stop generating before we kill it.
       # Without this, the CLI keeps consuming the API until it notices the broken pipe.
       try do
         {request_id, _} = next_request_id(state.control_counter)
-        Port.command(state.port, Control.interrupt_request(request_id) <> "\n")
-      rescue
-        _ -> :ok
+        :exec.send(state.os_pid, Control.interrupt_request(request_id) <> "\n")
+      catch
+        _, _ -> :ok
       end
 
-      Port.close(state.port)
+      try do
+        :exec.stop(state.os_pid)
+      catch
+        _, _ -> :ok
+      end
     end
 
     :ok
-  rescue
-    ArgumentError -> :ok
   end
 
   # ============================================================================
@@ -310,7 +329,7 @@ defmodule ClaudeCode.Adapter.Local do
       Adapter.notify_error(state.session, state.current_request, error)
     end
 
-    %{state | port: nil, current_request: nil, buffer: "", status: :disconnected, pending_control_requests: %{}}
+    %{state | os_pid: nil, current_request: nil, buffer: "", stderr_lines: [], status: :disconnected, pending_control_requests: %{}}
   end
 
   defp send_initialize_handshake(state) do
@@ -328,7 +347,7 @@ defmodule ClaudeCode.Adapter.Local do
 
     {request_id, new_counter} = next_request_id(state.control_counter)
     json = Control.initialize_request(request_id, hooks_wire, agents, sdk_mcp_server_names)
-    Port.command(state.port, json <> "\n")
+    :exec.send(state.os_pid, json <> "\n")
 
     pending = Map.put(state.pending_control_requests, request_id, {:initialize, state.session})
     schedule_control_timeout(request_id)
@@ -339,11 +358,11 @@ defmodule ClaudeCode.Adapter.Local do
   defp ensure_connected(%{status: :provisioning}), do: {:error, :provisioning}
   defp ensure_connected(%{status: :initializing}), do: {:error, :initializing}
 
-  defp ensure_connected(%{port: nil, status: :disconnected} = state) do
+  defp ensure_connected(%{os_pid: nil, status: :disconnected} = state) do
     case spawn_cli(state) do
-      {:ok, port} ->
+      {:ok, os_pid} ->
         Adapter.notify_status(state.session, :ready)
-        {:ok, %{state | port: port, buffer: "", status: :ready}}
+        {:ok, %{state | os_pid: os_pid, buffer: "", stderr_lines: [], status: :ready}}
 
       {:error, reason} ->
         Logger.error("Failed to reconnect to CLI: #{inspect(reason)}")
@@ -385,20 +404,26 @@ defmodule ClaudeCode.Adapter.Local do
   end
 
   defp open_cli_port(executable, args, state, opts) do
-    shell_path = :os.find_executable(~c"sh") || raise "sh not found"
     cmd_string = build_shell_command(executable, args, state, opts)
+    Logger.info("[cli spawn] #{cmd_string}")
 
-    port =
-      Port.open({:spawn_executable, shell_path}, [
-        {:args, ["-c", cmd_string]},
-        :binary,
-        :exit_status,
-        :stderr_to_stdout
-      ])
+    # build_shell_command embeds env vars, cwd, and agentbox wrapping into the string.
+    # We run it via /bin/sh -c so all that shell setup works, but use erlexec instead
+    # of Erlang ports for proper stdout/stderr separation and guaranteed message ordering.
+    exec_opts = [
+      :stdin,
+      {:stdout, self()},
+      {:stderr, self()},
+      :monitor
+    ]
 
-    {:ok, port}
-  rescue
-    e -> {:error, {:port_open_failed, e}}
+    case :exec.run([~c"/bin/sh", ~c"-c", to_charlist(cmd_string)], exec_opts) do
+      {:ok, _erlang_pid, os_pid} ->
+        {:ok, os_pid}
+
+      {:error, reason} ->
+        {:error, {:port_open_failed, reason}}
+    end
   end
 
   defp build_shell_command(executable, args, state, opts) do
@@ -521,11 +546,20 @@ defmodule ClaudeCode.Adapter.Local do
         end
 
       {:error, _} ->
+        Logger.warning("[cli stdout non-json] #{line}")
         state
     end
   end
 
-  defp handle_sdk_message(_json, %{current_request: nil} = state) do
+  defp handle_sdk_message(json, %{current_request: nil} = state) do
+    # No active request — but still log error results (e.g. startup failures)
+    case json do
+      %{"is_error" => true, "errors" => errors} when is_list(errors) ->
+        Logger.error("[cli error] #{Enum.join(errors, "; ")}")
+      %{"is_error" => true, "result" => result} when is_binary(result) ->
+        Logger.error("[cli error] #{result}")
+      _ -> :ok
+    end
     state
   end
 
@@ -542,7 +576,7 @@ defmodule ClaudeCode.Adapter.Local do
         end
 
       {:error, _} ->
-        Logger.debug("Failed to parse message: #{inspect(json)}")
+        Logger.warning("[cli] failed to parse SDK message: #{String.slice(inspect(json), 0, 200)}")
         state
     end
   end
@@ -614,7 +648,7 @@ defmodule ClaudeCode.Adapter.Local do
         Control.error_response(request_id, "Not implemented: #{subtype}")
       end
 
-    if state.port, do: Port.command(state.port, response <> "\n")
+    if state.os_pid, do: :exec.send(state.os_pid, response <> "\n")
     state
   end
 

@@ -62,6 +62,7 @@ defmodule ClaudeCode.MixProject do
 
       # Optional dependencies
       {:hermes_mcp, "~> 0.14", optional: true},
+      {:erlexec, "~> 2.0", optional: true},
 
       # Development and test dependencies
       {:styler, "~> 1.0", only: [:dev, :test], runtime: false},

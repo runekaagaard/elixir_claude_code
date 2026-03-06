@@ -84,7 +84,7 @@ defmodule ClaudeCode.MCP.Router do
         jsonrpc_error(message, -32_601, "Tool '#{name}' not found")
 
       module ->
-        atom_args = atomize_keys(args)
+        atom_args = args |> atomize_keys() |> coerce_types(module)
         frame = Frame.new(assigns)
 
         try do
@@ -118,6 +118,79 @@ defmodule ClaudeCode.MCP.Router do
       {k, v} -> {k, v}
     end)
   end
+
+  # Coerce parameter types based on the tool's schema.
+  # The MCP bridge sometimes sends integers as strings, arrays as JSON strings, etc.
+  # This router bypasses Hermes/Peri validation, so we must coerce here.
+  defp coerce_types(params, module) do
+    if function_exported?(module, :__mcp_raw_schema__, 0) do
+      schema = module.__mcp_raw_schema__()
+
+      Map.new(params, fn {key, value} ->
+        case Map.get(schema, key) do
+          {:mcp_field, type, _opts} -> {key, coerce_value(value, unwrap_type(type))}
+          type -> {key, coerce_value(value, unwrap_type(type))}
+        end
+      end)
+    else
+      params
+    end
+  end
+
+  defp unwrap_type({:required, type}), do: type
+  defp unwrap_type(type), do: type
+
+  defp coerce_value(val, :integer) when is_binary(val) do
+    case Integer.parse(val) do
+      {int, ""} -> int
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, :float) when is_binary(val) do
+    case Float.parse(val) do
+      {float, ""} -> float
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, :boolean) when is_binary(val) do
+    case val do
+      "true" -> true
+      "false" -> false
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, {:list, _}) when is_binary(val) do
+    case Jason.decode(val) do
+      {:ok, list} when is_list(list) -> list
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, :map) when is_binary(val) do
+    case Jason.decode(val) do
+      {:ok, map} when is_map(map) -> map
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, {:map, _}) when is_binary(val) do
+    case Jason.decode(val) do
+      {:ok, map} when is_map(map) -> map
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, {:map, _, _}) when is_binary(val) do
+    case Jason.decode(val) do
+      {:ok, map} when is_map(map) -> map
+      _ -> val
+    end
+  end
+
+  defp coerce_value(val, _type), do: val
 
   defp jsonrpc_result(%{"id" => id}, result) do
     %{"jsonrpc" => "2.0", "id" => id, "result" => result}

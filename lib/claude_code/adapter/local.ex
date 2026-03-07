@@ -251,15 +251,13 @@ defmodule ClaudeCode.Adapter.Local do
     case reason do
       :normal ->
         if state.status in [:provisioning, :initializing] do
-          stderr_text = Enum.join(state.stderr_lines, "\n")
-          Logger.error("[cli] exited during #{state.status} with no error (exit 0)#{if stderr_text != "", do: "\n#{stderr_text}"}")
+          Logger.error("[cli] exited during #{state.status} with no error (exit 0)")
         end
         {:noreply, handle_port_disconnect(state, :normal)}
 
       {:exit_status, raw_status} ->
         {:status, code} = :exec.status(raw_status)
-        stderr_text = Enum.join(state.stderr_lines, "\n")
-        if stderr_text != "", do: Logger.error("[cli exit=#{code}] #{stderr_text}")
+        Logger.error("[cli] exited with code #{code}")
         {:noreply, handle_port_disconnect(state, {:cli_exit, code})}
 
       other ->

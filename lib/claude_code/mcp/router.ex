@@ -63,7 +63,7 @@ defmodule ClaudeCode.MCP.Router do
 
       "tools/call" ->
         %{"params" => %{"name" => name, "arguments" => args}} = message
-        call_tool(tool_modules, name, args, message, assigns)
+        call_tool(tool_modules, name, args, message, assigns, server_name)
 
       _ ->
         jsonrpc_error(message, -32_601, "Method '#{method}' not supported")
@@ -78,7 +78,7 @@ defmodule ClaudeCode.MCP.Router do
     }
   end
 
-  defp call_tool(tool_modules, name, args, message, assigns) do
+  defp call_tool(tool_modules, name, args, message, assigns, server_name) do
     case Enum.find(tool_modules, &(&1.__tool_name__() == name)) do
       nil ->
         jsonrpc_error(message, -32_601, "Tool '#{name}' not found")
@@ -87,24 +87,46 @@ defmodule ClaudeCode.MCP.Router do
         atom_args = args |> atomize_keys() |> coerce_types(module)
         frame = Frame.new(assigns)
 
-        try do
-          case module.execute(atom_args, frame) do
-            {:reply, response, _frame} ->
-              jsonrpc_result(message, Response.to_protocol(response))
+        gate_assigns = Map.put(assigns, :server_name, server_name)
 
-            {:error, %{message: error_msg}, _frame} ->
-              jsonrpc_result(message, %{
-                "content" => [%{"type" => "text", "text" => to_string(error_msg)}],
-                "isError" => true
-              })
-          end
-        rescue
-          e ->
+        case run_approval_gate(name, atom_args, gate_assigns) do
+          :approved ->
+            try do
+              case module.execute(atom_args, frame) do
+                {:reply, response, _frame} ->
+                  jsonrpc_result(message, Response.to_protocol(response))
+
+                {:error, %{message: error_msg}, _frame} ->
+                  jsonrpc_result(message, %{
+                    "content" => [%{"type" => "text", "text" => to_string(error_msg)}],
+                    "isError" => true
+                  })
+              end
+            rescue
+              e ->
+                jsonrpc_result(message, %{
+                  "content" => [%{"type" => "text", "text" => "Tool error: #{Exception.message(e)}"}],
+                  "isError" => true
+                })
+            end
+
+          {:denied, reason} ->
             jsonrpc_result(message, %{
-              "content" => [%{"type" => "text", "text" => "Tool error: #{Exception.message(e)}"}],
+              "content" => [%{"type" => "text", "text" => reason}],
               "isError" => true
             })
         end
+    end
+  end
+
+  # Calls the approval gate if one is configured via Application env.
+  # The gate is set by the host application (e.g. Axiom.ToolApprovals.check/3).
+  # Returns :approved or {:denied, reason}.
+  # Falls through to :approved if no gate is configured.
+  defp run_approval_gate(tool_name, args, assigns) do
+    case Application.get_env(:claude_code, :approval_gate) do
+      nil -> :approved
+      gate_fn -> gate_fn.(tool_name, args, assigns)
     end
   end
 

@@ -562,20 +562,25 @@ defmodule ClaudeCode.Adapter.Local do
   end
 
   defp handle_sdk_message(json, state) do
-    case Parser.parse_message(json) do
-      {:ok, message} ->
-        Adapter.notify_message(state.session, state.current_request, message)
+    # rate_limit_info is not a conversation message - silently ignore
+    if Map.has_key?(json, "rate_limit_info") do
+      state
+    else
+      case Parser.parse_message(json) do
+        {:ok, message} ->
+          Adapter.notify_message(state.session, state.current_request, message)
 
-        if match?(%ResultMessage{}, message) do
-          Adapter.notify_done(state.session, state.current_request, :completed)
-          %{state | current_request: nil}
-        else
+          if match?(%ResultMessage{}, message) do
+            Adapter.notify_done(state.session, state.current_request, :completed)
+            %{state | current_request: nil}
+          else
+            state
+          end
+
+        {:error, _} ->
+          Logger.warning("[cli] failed to parse SDK message: #{String.slice(inspect(json), 0, 200)}")
           state
-        end
-
-      {:error, _} ->
-        Logger.warning("[cli] failed to parse SDK message: #{String.slice(inspect(json), 0, 200)}")
-        state
+      end
     end
   end
 

@@ -473,7 +473,8 @@ defmodule ClaudeCode.Adapter.Local do
   def sdk_env_vars do
     %{
       "CLAUDE_CODE_ENTRYPOINT" => "sdk-ex",
-      "CLAUDE_AGENT_SDK_VERSION" => ClaudeCode.version()
+      "CLAUDE_AGENT_SDK_VERSION" => ClaudeCode.version(),
+      "CLAUDE_CODE_ENABLE_TASKS" => "1"
     }
   end
 

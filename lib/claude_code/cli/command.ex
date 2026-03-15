@@ -62,8 +62,9 @@ defmodule ClaudeCode.CLI.Command do
     |> Enum.reduce([], fn {key, value}, acc ->
       case convert_option(key, value) do
         {flag, flag_value} -> [flag_value, flag | acc]
-        # Handle multiple flag entries (like add_dir)
-        flag_entries when is_list(flag_entries) -> flag_entries ++ acc
+        # Handle multiple flag entries (like add_dir, plugins) — reverse to match
+        # the accumulator's reversed order (final Enum.reverse fixes both)
+        flag_entries when is_list(flag_entries) -> Enum.reverse(flag_entries) ++ acc
         nil -> acc
       end
     end)

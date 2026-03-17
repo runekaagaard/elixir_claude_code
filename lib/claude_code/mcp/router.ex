@@ -88,8 +88,9 @@ defmodule ClaudeCode.MCP.Router do
         frame = Frame.new(assigns)
 
         gate_assigns = Map.put(assigns, :server_name, server_name)
+        gate_tool_name = "mcp__#{server_name}__#{name}"
 
-        case run_approval_gate(name, atom_args, gate_assigns) do
+        case run_approval_gate(gate_tool_name, atom_args, gate_assigns) do
           :approved ->
             try do
               case module.execute(atom_args, frame) do
